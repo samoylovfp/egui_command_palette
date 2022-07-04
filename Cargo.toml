@@ -1,0 +1,10 @@
+[package]
+name = "egui_command_palette"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.18"
+
+[dev-dependencies]
+eframe = "0.18"
