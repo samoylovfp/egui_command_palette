@@ -6,46 +6,23 @@
 
 use std::{collections::HashSet, hash::Hash};
 
-use egui::{Id, Key};
+use egui::{Id, Key, Modifiers};
 
-pub struct CommandPalette {
+pub struct CommandPalette<A> {
     is_open: bool,
     search_term: String,
     prev_element_focus: Option<Id>,
-    actions: HashSet<Action>,
-    recently_activated: HashSet<String>,
+    actions: HashSet<A>,
+    recently_activated: HashSet<A>,
 }
 
-pub struct Action {
-    command: String,
-    description: String,
+pub trait Action: PartialEq + Eq + Hash + Clone {
+    fn cmd(&self) -> &str;
+    fn description(&self) -> &str;
 }
 
-impl Action {
-    pub const fn new(command: String, description: String) -> Self {
-        Action {
-            command,
-            description,
-        }
-    }
-}
-
-impl PartialEq for Action {
-    fn eq(&self, other: &Self) -> bool {
-        self.command == other.command
-    }
-}
-
-impl Eq for Action {}
-
-impl Hash for Action {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.command.hash(state);
-    }
-}
-
-impl CommandPalette {
-    pub fn new(actions: Vec<Action>) -> Self {
+impl<A: Action> CommandPalette<A> {
+    pub fn new(actions: Vec<A>) -> Self {
         CommandPalette {
             is_open: false,
             search_term: String::new(),
@@ -55,27 +32,23 @@ impl CommandPalette {
         }
     }
 
-    pub fn activate(&mut self, action: &str) {
-        self.recently_activated.insert(action.to_string());
+    pub fn activate(&mut self, action: A) {
+        self.recently_activated.insert(action);
     }
-    pub fn is_activated(&self, action: &str) -> bool {
-        self.recently_activated.contains(action)
+    pub fn get_activations(&mut self) -> HashSet<A> {
+        std::mem::take(&mut self.recently_activated)
     }
-    pub fn reset_activations(&mut self) {
-        self.recently_activated.clear();
-    }
-}
 
-impl CommandPalette {
     /// Opens the search for commands window
     /// You can use `ctx.memory().focus()` to make commandpalette return focus
     /// after it is done
     pub fn open(&mut self, return_focus_to: Option<Id>) {
         if !self.is_open {
-            self.prev_element_focus = dbg!(return_focus_to);
+            self.prev_element_focus = return_focus_to;
         }
         self.is_open = true;
     }
+
     /// Renders the search for command window
     pub fn render(&mut self, ctx: &egui::Context) {
         let mut activated_this_render = HashSet::new();
@@ -101,29 +74,36 @@ impl CommandPalette {
                     .striped(true)
                     .num_columns(1)
                     .show(ui, |ui| {
-                        for action in &self.actions {
-                            if !action.command.contains(&self.search_term) {
+                        for action in self.actions.clone() {
+                            if !action.cmd().contains(&self.search_term) {
                                 continue;
                             }
+                            let enter_pressed =
+                                ui.input_mut().consume_key(Modifiers::NONE, Key::Enter);
                             let action_clicked = ui
                                 .vertical(|ui| {
-                                    let b = ui.button(&action.command);
-                                    ui.label(&action.description);
+                                    let b = ui.button(action.cmd());
+                                    ui.label(action.description());
                                     b.clicked()
                                 })
                                 .inner;
-                            if action_clicked {
-                                activated_this_render.insert(action.command.clone());
-                                if let Some(w) = self.prev_element_focus {
-                                    ctx.memory().request_focus(w);
-                                }
-                                self.is_open = false;
+                            if action_clicked || enter_pressed {
+                                activated_this_render.insert(action);
+                                self.close(ctx);
+                                self.search_term.clear();
                             }
                             ui.end_row()
                         }
                     })
             });
         self.recently_activated.extend(activated_this_render);
+    }
+
+    fn close(&mut self, ctx: &egui::Context) {
+        self.is_open = false;
+        if let Some(w) = self.prev_element_focus {
+            ctx.memory().request_focus(w);
+        }
     }
     // pub fn register(&mut self, command: &str, description: &str) {}
 }
